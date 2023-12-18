@@ -1,18 +1,18 @@
 #load dataset
-setwd("/Users/qiaoyinie/Desktop/First-Year Project/Data")
+setwd("/Users/qiaoyinie/Desktop/PS532Quant III/PS532-Final-Project")
 getwd()
 
 data <- read.csv("Asian Americans’ Experiences of Discrimination and Political Participation Survey_August 15, 2023_23.54.csv")
 View(data)
 
-#data cleaning
+###data cleaning
 fdata <- data[-c(1,2,3,4,12,27,28,50,59,178,205,250,267,268,269,270,271,276,278,279,281,286,288,289,293,317,321,323,352,353,354,355), -c(1:18)]
 View(fdata)
 
 install.packages('tidyverse')
 library(tidyverse)
 
-##mutate new variables
+#mutate new variables
 fdata$X1<- as.numeric(fdata$X1)
 fdata$X2<- as.numeric(fdata$X2)
 fdata$X3<- as.numeric(fdata$X3)
@@ -28,7 +28,7 @@ fdata1 <- fdata1 %>%
 fdata1 <- fdata1 %>% 
   mutate(APP = rowMeans(select(fdata1, c(30:129)), na.rm = TRUE))
 
-##subset treatment
+###subset treatment
 fdata1 <- fdata1 %>% 
   mutate_at(vars(c(15:24)), as.numeric)
 
@@ -45,16 +45,16 @@ fulldata <- fdata1 %>%
   select(c(1:24,130,132,133,134))
 
 
-#preps for analysis
+###preps for analysis
 
-##assign meaning
+#assign meaning
 install.packages("Hmisc")
 library(Hmisc)
 label(fulldata$Race.and.Ethnicity)   <- "Ethnicity"
 label(fulldata$Q19)   <- "Frequency of Dis"
 
-#descriptive analysis
-##ethnicity
+###descriptive analysis
+#ethnicity
 unique(fulldata$Asian)
 
 fulldata <- fulldata[order(fulldata$Asian, decreasing = TRUE), ]
@@ -166,6 +166,32 @@ fulldata %>%
   Placebo <- fulldata[fulldata$Treat ==1, ]
   PS <- fulldata[fulldata$Treat ==4, ]
  
+  ## combine the treated and control/placebo group
+ Tr1 <- rbind(PD, Placebo)
+ Tr2 <- rbind(SD, Placebo)
+  
+  ### Propensity Score Matching
+  install.packages("Matching")
+  library(Matching)
+  
+  library(ggplot2)
+  library(Matching)
+  
+  # dependent variable
+  y <- lalonde$re78
+  ##re: real earning
+  
+  # treatment
+  tr <- lalonde$treat
+  
+  # create a propensity score model
+  glm1 <- glm(treat~age+educ+black+hisp+married+nodegr+re74+re75,
+              family=binomial, data=lalonde)
+  
+  joinpscore = cbind(lalonde, glm1$fitted)
+  
+  colnames(joinpscore)[13] = "Propensity_Score"
+  
   #interaction plot
   Fulldata <- fulldata %>% 
     filter(Treat %in% c(2, 3, 4)) %>%
