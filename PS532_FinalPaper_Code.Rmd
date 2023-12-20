@@ -1,0 +1,320 @@
+---
+title: "PS532 Final Paper: Exploring the Relationship Between Perceived Discrimination and Political Participation: Evidence from Asian Americans"
+author: "Qiaoyi Nie"
+date: "2023-12-19"
+output: pdf_document
+---
+
+```{r}
+#load dataset
+setwd("/Users/qiaoyinie/Desktop/PS532Quant III/PS532-Final-Project")
+getwd()
+
+data <- read.csv("Asian Americans’ Experiences of Discrimination and Political Participation Survey_August 15, 2023_23.54.csv")
+View(data)
+
+###data cleaning
+fdata <- data[-c(1,2,3,4,12,27,28,50,59,178,205,250,267,268,269,270,271,276,278,279,281,286,288,289,293,317,321,323,352,353,354,355), -c(1:18)]
+View(fdata)
+
+install.packages('tidyverse')
+library(tidyverse)
+
+#mutate new variables
+fdata$X1<- as.numeric(fdata$X1)
+fdata$X2<- as.numeric(fdata$X2)
+fdata$X3<- as.numeric(fdata$X3)
+fdata$X4<- as.numeric(fdata$X4)
+fdata$X5<- as.numeric(fdata$X5)
+
+fdata1 <- fdata %>% 
+  mutate(MPP = rowMeans(select(fdata, c(25:29)), na.rm = TRUE))
+
+fdata1 <- fdata1 %>% 
+  mutate_at(vars(c(30:129)), as.numeric)
+
+fdata1 <- fdata1 %>% 
+  mutate(APP = rowMeans(select(fdata1, c(30:129)), na.rm = TRUE))
+
+###subset treatment
+fdata1 <- fdata1 %>% 
+  mutate_at(vars(c(15:24)), as.numeric)
+
+fdata1 <- fdata1 %>% 
+  mutate(Treatment = case_when(
+    PD1 >= 1 ~ "1",
+    SD1 >= 1 ~ "2",
+    P1 >= 1 ~ "3",
+    PD1.1 >= 1 ~ "4",
+    TRUE ~ "F"  # Default case if none of the conditions match
+  ))
+
+fulldata <- fdata1 %>% 
+  select(c(1:24,130,132,133,134))
+
+
+###preps for analysis
+
+#assign meaning
+install.packages("Hmisc")
+library(Hmisc)
+label(fulldata$Race.and.Ethnicity)   <- "Ethnicity"
+label(fulldata$Q19)   <- "Frequency of Dis"
+
+###descriptive analysis
+#ethnicity
+unique(fulldata$Asian)
+
+fulldata <- fulldata[order(fulldata$Asian, decreasing = TRUE), ]
+
+fulldata <- fulldata %>% 
+  mutate(Ethcinity = case_when(
+    Asian== 1 ~ "Asian Indian",
+    Asian== 2 ~ "Bangladeshi",
+    Asian== 3 ~ "Bhutanese",
+    Asian== 4 ~ "Burmese",
+    Asian== 5 ~ "Cambodian",
+    Asian== 6 ~ "Chinese",
+    Asian== 7 ~ "Philippino",
+    Asian== 8 ~ "Hmong",
+    Asian== 9 ~ "Indonesian",
+    Asian== 10 ~ "Japanese",
+    Asian== 11 ~ "Korean",
+    Asian== 12 ~ "Laotian",
+    Asian== 13 ~ "Mongolian",
+    Asian== 14 ~ "Malaysian",
+    Asian== 15 ~ "Nepalese",
+    Asian== 16 ~ "Okinawan",
+    Asian== 17 ~ "Pakistani",
+    Asian== 18 ~ "Sri Lankan",
+    Asian== 19 ~ "Thai",
+    Asian== 20 ~ "Vietnamese",
+    TRUE ~ "F"  # Default case if none of the conditions match
+  ))
+
+```
+
+
+```{R}
+##linear regression without matching
+  ##subset
+  fulldata <- fulldata %>% 
+    mutate(Treat = case_when(
+      Treatment== 3 ~ "1",
+      Treatment== 1 ~ "2",
+      Treatment== 2 ~ "3",
+      Treatment== 4 ~ "4",
+    ))
+  
+  PD <- fulldata[fulldata$Treat ==2, ]
+  SD <- fulldata[fulldata$Treat ==3, ]
+  Placebo <- fulldata[fulldata$Treat ==1, ]
+ 
+  ## combine the treated and control/placebo group
+  PD <- subset(fulldata, Treat < 3)
+  SD <- subset(fulldata, Treat ==1 | Treat == 3)
+  
+   PD <- PD %>% 
+    mutate(Treat = case_when(
+      Treatment== 1 ~ "1",
+      Treatment== 3 ~ "0",
+    ))
+  
+  SD <- SD %>% 
+    mutate(Treat = case_when(
+      Treatment== 2 ~ "1",
+      Treatment== 3 ~ "0",
+    ))
+  
+
+  #remove NAs columns and rows
+  PD <- subset(PD, select = c(Age,Gender,Race.and.Ethnicity,Birthplace,Education,Residence.area.1,Household.Income.Lev,Discriminatory.Exper, MPP,APP,Treat))
+  PD <- PD[-4,]
+  PD <- PD[-40,]
+  PD <- PD[-75,]
+               
+  SD <- subset(SD, select = c(Age,Gender,Race.and.Ethnicity,Birthplace,Education,Residence.area.1,Household.Income.Lev,Discriminatory.Exper, MPP,APP,Treat))
+  SD <- SD[-5,]
+  SD <- SD[-77,]
+  
+  
+  #Check the observations
+  table(PD$Treat) #control: 79 Treated:77
+  table(SD$Treat) #control: 79 Treated:81
+  
+  #regression analysis
+  install.packages("estimatr")
+  library(estimatr)
+  lm1 <- lm_robust(MPP ~ Treat, data=PD)
+  summary(lm1)
+
+  sjPlot::plot_model(lm1, type = "pred")+
+    theme(plot.background = element_rect(fill = "white"))+
+    theme_minimal()
+  
+ 
+  lm2 <- lm_robust(MPP ~ Treat, data=SD)
+  
+  summary(lm2)
+  
+  sjPlot::plot_model(lm2, type = "pred", )+
+    theme_minimal()
+
+```
+
+```{R}
+##matching
+
+  # Display the result
+  #print(PD)
+  #print(SD)
+  
+  ### Propensity Score Matching
+  install.packages("Matching")
+  library(Matching)
+  
+  library(ggplot2)
+  library(Matching)
+  
+
+  # dependent variable
+  y1 <- PD$MPP
+  y2 <- SD$MPP
+  
+  # treatment
+  tr1 <- PD$Treat
+  tr2 <- SD$Treat
+  
+  # Convert character variable to numeric
+  PD$Treat <- as.numeric(PD$Treat)
+  PD$Age <- as.numeric(PD$Age)
+  PD$Race.and.Ethnicity <- as.numeric(PD$Race.and.Ethnicity)
+  PD$Gender <- as.numeric(PD$Gender)
+  PD$Birthplace <- as.numeric(PD$Birthplace)
+  PD$Education <- as.numeric(PD$Education)
+  PD$Household.Income.Lev <- as.numeric(PD$Household.Income.Lev)
+  PD$Discriminatory.Exper <- as.numeric(PD$Discriminatory.Exper)
+  
+  SD$Treat <- as.numeric(SD$Treat)
+  SD$Age <- as.numeric(SD$Age)
+  SD$Race.and.Ethnicity <- as.numeric(SD$Race.and.Ethnicity)
+  SD$Gender <- as.numeric(SD$Gender)
+  SD$Birthplace <- as.numeric(SD$Birthplace)
+  SD$Education <- as.numeric(SD$Education)
+  SD$Household.Income.Lev <- as.numeric(SD$Household.Income.Lev)
+  SD$Discriminatory.Exper <- as.numeric(SD$Discriminatory.Exper)
+  
+  
+  # create a propensity score model for the political discrimination treatment
+  glm1 <- glm(Treat~Age+Race.and.Ethnicity+Gender+Birthplace+Education+Residence.area.1+Household.Income.Lev+Discriminatory.Exper,
+              family=binomial, data=PD)
+  
+  #make sure the length of fitted value is the same with the treated ones
+  length(glm1$fitted)
+  
+  joinpscore1 = cbind(PD, glm1$fitted)
+
+  colnames(joinpscore1)[12] = "Propensity_Score"
+  
+  # With transparency
+   ggplot(data=joinpscore1, aes(x=Propensity_Score, group=Treat, fill=Treat)) + geom_density(adjust=1, alpha=.4) + ggtitle("Assessing Mainstream Political Participation W/ Political Discrimination")
+  
+ 
+  # default options: estimand="ATT", M=1, exact=NULL,caliper=NULL, replace=TRUE
+
+  
+  #one-to-one matching for PD
+  rr1 <- Match(Y=y1, Tr=tr1, X=glm1$fitted)
+  summary(rr1)
+  
+  atc <- Match(Y=y1, Tr=tr1, X=glm1$fitted, estimand = "ATC")
+  summary(atc)
+  
+  matched <- PD[c(rr1$index.treated,rr1$index.control),]
+  
+  Matchdefinition  <- function(Y=NULL,Tr,X,Z=X,V=rep(1,length(Y)), estimand="ATT", M=1, BiasAdjust=FALSE,exact=NULL,caliper=NULL, replace=TRUE, ties=TRUE, Weight=1,Weight.matrix=NULL, weights=NULL,     Var.calc=0, sample=FALSE, restrict=NULL, match.out=NULL,           distance.tolerance=0.00001, tolerance=sqrt(.Machine$double.eps), version="standard"){}
+  
+  
+  # Assess balance for one covariate
+  # Do we have balance on discrimination experience after matching?
+  qqout1 <- qqstats(PD$Discriminatory.Exper[rr1$index.treated], PD$Discriminatory.Exper[rr1$index.control])
+  print(qqout1)
+  
+  # check balance
+  postmatchbal1 = MatchBalance(Treat~Age+Gender+Race.and.Ethnicity+Birthplace+Education+Residence.area.1+Household.Income.Lev+Discriminatory.Exper, match.out=rr1, nboots=1000, data=PD)
+  
+  # Transform to a tabular format
+  
+  SMDeepExtract <- function(PD, col = c("mean.Tr",  "mean.Co", "var.Tr", "var.Co", "var.ratio", "p.value", "sdiff")){
+    cbind(
+      t(sapply(PD[[ "BeforeMatching" ]], "[", col)),
+      t(sapply(PD[[ "AfterMatching" ]], "[", col))
+    )
+  }
+  
+  # extract
+  res1 <- SMDeepExtract(postmatchbal1)
+  
+  rownames(res1) = c("Age", "Gender", "Race and Ethnicity", "Birthplace", "Education", "Suburban", "Rural", "Household Income Level", "Discriminatory Experiences" )
+  colnames(res1) = c("mean.Tr",  "mean.Co", "var.Tr", "var.Co", "var.ratio", "p.value", "sdiff", "A.mean.Tr",  "A.mean.Co", "A.var.Tr", "A.var.Co", "A.var.ratio", "A.p.value", "A.sdiff")
+  
+  res1[] <- lapply(res1,round,2)
+  kableExtra::kable(res1[])
+
+  # create a propensity score model for the second treatment
+  glm2 <- glm(Treat~Age+Gender+Race.and.Ethnicity+Birthplace+Education+Residence.area.1+Household.Income.Lev+Discriminatory.Exper,
+              family=binomial, data=SD)
+  
+  #check the length
+  length(glm2$fitted)
+  
+  joinpscore2 = cbind(SD, glm2$fitted)
+  
+  colnames(joinpscore2)[12] = "Propensity_Score"
+  
+  
+  # With transparency
+  ggplot(data=joinpscore2, aes(x=Propensity_Score, group=Treat, fill=Treat)) + geom_density(adjust=1, alpha=.4) + ggtitle("Assessing Mainstream Political Participation W/ Societal Discrimination")
+  
+  #one-to-one matching for SD
+  rr2 <- Match(Y=y2, Tr=tr2, X=glm2$fitted)
+  summary(rr2)
+  
+  atc <- Match(Y=y2, Tr=tr2, X=glm2$fitted, estimand = "ATC")
+  summary(atc)
+  
+  matched <- PD[c(rr2$index.treated,rr2$index.control),]
+  
+  Matchdefinition  <- function(Y=NULL,Tr,X,Z=X,V=rep(1,length(Y)), estimand="ATT", M=1, BiasAdjust=FALSE,exact=NULL,caliper=NULL, replace=TRUE, ties=TRUE, Weight=1,Weight.matrix=NULL, weights=NULL,     Var.calc=0, sample=FALSE, restrict=NULL, match.out=NULL,           distance.tolerance=0.00001, tolerance=sqrt(.Machine$double.eps), version="standard"){}
+  
+  
+  # Assess balance for one covariate
+  # Do we have balance on discrimination experience after matching?
+  qqout2 <- qqstats(SD$Race.and.Ethnicity[rr2$index.treated], SD$Race.and.Ethnicity[rr2$index.control])
+  print(qqout2)
+  
+  
+  # check balance
+  postmatchbal2 = MatchBalance(Treat~Age+Gender+Race.and.Ethnicity+Birthplace+Education+Residence.area.1+Household.Income.Lev+Discriminatory.Exper, match.out=rr1, nboots=1000, data=SD)
+  
+  # Transform to a tabular format
+  
+  SMDeepExtract <- function(SD, col = c("mean.Tr",  "mean.Co", "var.Tr", "var.Co", "var.ratio", "p.value", "sdiff")){
+    cbind(
+      t(sapply(SD[[ "BeforeMatching" ]], "[", col)),
+      t(sapply(SD[[ "AfterMatching" ]], "[", col))
+    )
+  }
+  
+  # extract
+  res2 <- SMDeepExtract(postmatchbal2)
+  
+  rownames(res2) = c("Age", "Gender", "Race and Ethnicity", "Birthplace", "Education", "Suburban", "Rural", "Household Income Level", "Discriminatory Experiences" )
+  colnames(res2) = c("mean.Tr",  "mean.Co", "var.Tr", "var.Co", "var.ratio", "p.value", "sdiff", "A.mean.Tr",  "A.mean.Co", "A.var.Tr", "A.var.Co", "A.var.ratio", "A.p.value", "A.sdiff")
+  
+  res2[] <- lapply(res2,round,2)
+  kableExtra::kable(res2[])
+  
+
+```
+
